@@ -1,0 +1,27 @@
+# Database files (recreated each event)
+*.db
+*.db-journal
+
+# Backup CSV files
+*.csv.bak
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+
+# Virtual environment
+venv/
+.venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
