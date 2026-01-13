@@ -4,6 +4,9 @@ import datetime
 import pandas as pd
 import os
 import re
+import html
+import subprocess
+import sys
 import sqlite3
 import time
 
@@ -27,21 +30,93 @@ st.markdown("""
     /* Global styling */
     .stApp {
         font-family: 'Outfit', sans-serif;
+        color: var(--text);
+        background-color: var(--black);
+    }
+
+    body,
+    [data-testid="stAppViewContainer"],
+    [data-testid="stHeader"] {
+        background-color: var(--black);
+        color: var(--text);
+    }
+
+    a {
+        color: var(--text);
+    }
+
+    h1, h2, h3, h4, h5, h6,
+    p, label, span, li {
+        color: var(--text);
+    }
+
+    .stCaption {
+        color: var(--text-muted) !important;
+    }
+
+    /* Inputs */
+    input,
+    textarea,
+    select {
+        background-color: var(--black-2) !important;
+        color: var(--text) !important;
+        border: 1px solid var(--red) !important;
+        border-radius: 10px !important;
+    }
+
+    div[data-baseweb="select"] > div {
+        background-color: var(--black-2) !important;
+        border: 1px solid var(--red) !important;
+        color: var(--text) !important;
+    }
+
+    div[data-baseweb="select"] span {
+        color: var(--text) !important;
+    }
+
+    hr {
+        border-color: var(--black-3);
+    }
+
+    input::placeholder,
+    textarea::placeholder {
+        color: var(--text-muted) !important;
+    }
+
+    /* Alerts */
+    div[data-testid="stAlert"] {
+        background-color: var(--black-2) !important;
+        color: var(--text) !important;
+        border: 1px solid var(--red) !important;
+    }
+    div[data-testid="stAlert"] p {
+        color: var(--text) !important;
+    }
+    
+    /* Focus styles for keyboard users */
+    button:focus-visible,
+    input:focus-visible,
+    textarea:focus-visible,
+    select:focus-visible {
+        outline: 3px solid var(--text);
+        outline-offset: 2px;
     }
     
     /* Mobile-friendly sizing */
     @media (max-width: 768px) {
         .stTabs [data-baseweb="tab-list"] {
             gap: 0.5rem;
+            flex-wrap: wrap;
+            row-gap: 0.4rem;
+            justify-content: center;
         }
         .stTabs [data-baseweb="tab"] {
-            padding: 0.5rem 0.8rem;
-            font-size: 0.9rem;
+            padding: 0.6rem 1rem;
+            font-size: 0.95rem;
         }
         .stButton>button {
-            width: 100%;
-            min-height: 50px;
-            font-size: 1.1rem;
+            min-height: 44px;
+            font-size: 1.05rem;
         }
         .stTextInput input {
             font-size: 16px !important; /* Prevents zoom on iOS */
@@ -53,60 +128,113 @@ st.markdown("""
         h2, .stSubheader {
             font-size: 1.3rem !important;
         }
+        .stDataFrame {
+            font-size: 1rem;
+        }
+        /* Stack Streamlit columns on small screens */
+        div[data-testid="stHorizontalBlock"] {
+            flex-direction: column;
+        }
+        div[data-testid="stColumn"] {
+            width: 100% !important;
+        }
     }
     
-    /* Spicy theme colors */
+    /* Theme colors */
     :root {
-        --spicy-orange: #ff6b35;
-        --spicy-red: #e63946;
-        --spicy-yellow: #f7931e;
-        --spicy-dark: #1a1a2e;
+        --red: #c00000;
+        --red-dark: #8b0000;
+        --black: #0b0b0b;
+        --black-2: #111111;
+        --black-3: #1a1a1a;
+        --text: #ffffff;
+        --text-muted: rgba(255, 255, 255, 0.85);
     }
     
     /* Header styling */
     h1 {
-        background: linear-gradient(90deg, var(--spicy-orange), var(--spicy-red));
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
+        color: var(--text);
         font-weight: 800;
     }
     
-    /* Primary buttons */
-    .stButton>button[kind="primary"], 
-    div[data-testid="stFormSubmitButton"]>button {
-        background: linear-gradient(135deg, var(--spicy-orange), var(--spicy-red));
-        color: white;
-        border: none;
-        border-radius: 25px;
-        padding: 0.6rem 2rem;
-        font-weight: 700;
-        font-family: 'Outfit', sans-serif;
-        transition: all 0.3s ease;
-        text-transform: uppercase;
-        letter-spacing: 1px;
+    @media (forced-colors: active) {
+        h1 {
+            background: none;
+            -webkit-text-fill-color: CanvasText;
+            color: CanvasText;
+        }
     }
     
+    /* Default buttons */
+    .stButton>button {
+        background: var(--black-2);
+        color: var(--text);
+        border: 1px solid var(--black-3);
+        border-radius: 12px;
+        font-weight: 600;
+        padding: 0.5rem 1rem;
+        line-height: 1.2;
+    }
+
+    div[data-testid="stDownloadButton"]>button {
+        background: var(--black-2);
+        color: var(--text);
+        border: 1px solid var(--black-3);
+        border-radius: 12px;
+        font-weight: 600;
+        padding: 0.5rem 1rem;
+        line-height: 1.2;
+    }
+
+    /* Primary buttons */
+    .stButton>button[kind="primary"] {
+        background: var(--red);
+        color: var(--text);
+        border: 1px solid var(--red);
+        border-radius: 12px;
+        padding: 0.6rem 1.5rem;
+        font-weight: 600;
+        font-family: 'Outfit', sans-serif;
+        transition: all 0.3s ease;
+        text-transform: none;
+        letter-spacing: 0;
+    }
+
     .stButton>button:hover {
-        transform: scale(1.02);
-        box-shadow: 0 6px 20px rgba(255, 107, 53, 0.4);
+        background: var(--black-3);
+        border-color: var(--black-3);
+    }
+
+    div[data-testid="stDownloadButton"]>button:hover {
+        background: var(--black-3);
+        border-color: var(--black-3);
+    }
+
+    .stButton>button[kind="primary"]:hover {
+        background: var(--red-dark);
+        border-color: var(--red-dark);
+    }
+
+    div[data-testid="stFormSubmitButton"]>button {
+        width: auto;
+        min-width: 140px;
     }
     
     /* Draw button special styling */
     .draw-button button {
-        background: linear-gradient(135deg, #00c853, #00e676) !important;
+        background: var(--red) !important;
         animation: pulse 2s infinite;
     }
     
     @keyframes pulse {
-        0%, 100% { box-shadow: 0 0 0 0 rgba(0, 200, 83, 0.4); }
-        50% { box-shadow: 0 0 0 15px rgba(0, 200, 83, 0); }
+        0%, 100% { box-shadow: 0 0 0 0 rgba(192, 0, 0, 0.4); }
+        50% { box-shadow: 0 0 0 15px rgba(192, 0, 0, 0); }
     }
     
     /* Success message styling */
     .winner-announcement {
-        background: linear-gradient(135deg, #1a1a2e, #16213e);
-        border: 3px solid var(--spicy-orange);
+        background: var(--black-2);
+        border: 2px solid var(--red);
         border-radius: 20px;
         padding: 2rem;
         text-align: center;
@@ -115,7 +243,7 @@ st.markdown("""
     }
     
     .winner-announcement h2 {
-        color: var(--spicy-orange);
+        color: var(--text);
         font-size: 2rem;
         margin: 0;
     }
@@ -128,71 +256,124 @@ st.markdown("""
     
     /* Stats cards */
     .stat-card {
-        background: linear-gradient(135deg, #16213e, #1a1a2e);
+        background: var(--black-2);
         border-radius: 15px;
         padding: 1.2rem;
         text-align: center;
-        border: 1px solid rgba(255, 107, 53, 0.3);
+        border: 1px solid var(--red);
     }
     
     .stat-card h3 {
-        color: var(--spicy-orange);
+        color: var(--text);
         font-size: 2rem;
         margin: 0;
     }
     
     .stat-card p {
-        color: #888;
+        color: var(--text-muted);
         margin: 0.5rem 0 0 0;
         font-size: 0.9rem;
     }
     
     /* Currently playing indicator */
     .now-playing {
-        background: linear-gradient(90deg, var(--spicy-orange), var(--spicy-red));
-        color: white;
+        background: var(--red);
+        color: var(--text);
         padding: 1rem 1.5rem;
         border-radius: 15px;
         text-align: center;
         font-weight: 700;
         font-size: 1.2rem;
         margin: 1rem 0;
-        animation: glow 2s ease-in-out infinite;
     }
     
-    @keyframes glow {
-        0%, 100% { box-shadow: 0 0 10px var(--spicy-orange); }
-        50% { box-shadow: 0 0 25px var(--spicy-orange), 0 0 40px var(--spicy-red); }
+    @media (prefers-reduced-motion: reduce) {
+        * {
+            animation: none !important;
+            transition: none !important;
+            scroll-behavior: auto !important;
+        }
     }
     
     /* Table improvements for mobile */
     .stDataFrame {
-        font-size: 0.85rem;
+        font-size: 0.95rem;
     }
     
     /* Tab styling */
     .stTabs [data-baseweb="tab-list"] {
-        background: rgba(26, 26, 46, 0.5);
+        background: var(--black-2);
         border-radius: 15px;
-        padding: 0.3rem;
+        padding: 0.5rem;
+        gap: 0.6rem;
     }
     
     .stTabs [data-baseweb="tab"] {
+        background: var(--black-3);
+        color: var(--text);
+        border: 1px solid var(--black-3);
         border-radius: 10px;
         font-weight: 600;
+        padding: 0.6rem 1.1rem;
+        line-height: 1.2;
+        white-space: nowrap;
     }
     
     .stTabs [aria-selected="true"] {
-        background: linear-gradient(135deg, var(--spicy-orange), var(--spicy-red));
+        background: var(--red);
+        border-color: var(--red);
+        color: var(--text);
     }
     
     /* Confirmation dialog styling */
     .confirm-box {
-        background: #2d2d44;
-        border: 2px solid var(--spicy-red);
+        background: var(--black-2);
+        border: 2px solid var(--red);
         border-radius: 15px;
         padding: 1.5rem;
         margin: 1rem 0;
+    }
+
+    /* Hide "Press Enter to submit" helper text in forms */
+    div[data-testid="stForm"] .stCaption {
+        display: none !important;
+    }
+
+    /* Admin table text wrapping */
+    .admin-header,
+    .admin-cell {
+        display: block;
+        white-space: normal;
+        word-break: break-word;
+        overflow-wrap: break-word;
+        line-height: 1.2;
+        font-size: 0.95rem;
+    }
+
+    .admin-header {
+        font-weight: 700;
+    }
+
+    .admin-cell.muted {
+        color: var(--text-muted);
+    }
+
+    /* Dataframe colors */
+    div[data-testid="stDataFrame"] {
+        background-color: var(--black-2);
+        color: var(--text);
+    }
+    div[data-testid="stDataFrame"] table,
+    div[data-testid="stDataFrame"] thead,
+    div[data-testid="stDataFrame"] tbody,
+    div[data-testid="stDataFrame"] tr,
+    div[data-testid="stDataFrame"] th,
+    div[data-testid="stDataFrame"] td {
+        color: var(--text) !important;
+        background-color: var(--black-2);
+    }
+    div[data-testid="stDataFrame"] tr:nth-child(even) td {
+        background-color: var(--black-3);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -214,6 +395,73 @@ def is_duplicate_dj(dj_name, existing_list):
             return True
     return False
 
+def is_absent(dj):
+    """Return True if DJ is marked absent."""
+    return bool(dj.get('absent'))
+
+def is_picked(dj, played_djs):
+    """Return True if DJ is already picked."""
+    return bool(dj.get('picked')) or dj['name'] in played_djs
+
+def is_eligible_for_draw(dj, played_djs):
+    """Return True if DJ can be included in the next draw."""
+    return (not is_absent(dj)) and (not is_picked(dj, played_djs))
+
+def matches_admin_search(dj, query):
+    """Return True if DJ matches admin search query."""
+    if not query:
+        return True
+    query = query.strip().lower()
+    if not query:
+        return True
+    instagram = dj.get('instagram', '')
+    fields = [
+        dj.get('name', ''),
+        dj.get('real_name', ''),
+        dj.get('email', ''),
+        instagram,
+        f"@{instagram}" if instagram else "",
+    ]
+    return any(query in str(field).lower() for field in fields)
+
+def render_admin_cell(value, muted=False, fallback="-"):
+    """Render a table cell with optional muted styling."""
+    text = str(value).strip() if value is not None else ""
+    if not text:
+        text = fallback
+    safe_text = html.escape(text)
+    cell_class = "admin-cell muted" if muted else "admin-cell"
+    st.markdown(f'<div class="{cell_class}">{safe_text}</div>', unsafe_allow_html=True)
+
+def render_admin_header(label):
+    """Render a table header cell."""
+    safe_label = html.escape(label)
+    st.markdown(f'<div class="admin-header">{safe_label}</div>', unsafe_allow_html=True)
+
+def copy_to_clipboard(text):
+    """Copy text to the system clipboard."""
+    if not text:
+        return False
+    try:
+        if sys.platform == "darwin":
+            subprocess.run(["pbcopy"], input=text, text=True, check=False)
+            return True
+    except Exception:
+        pass
+    try:
+        import pyperclip
+        pyperclip.copy(text)
+        return True
+    except Exception:
+        return False
+
+def show_toast(message):
+    """Show a non-blocking toast if available."""
+    if hasattr(st, "toast"):
+        st.toast(message)
+    else:
+        st.success(message)
+
 # --- Database Functions ---
 def init_db():
     """Initialize SQLite database"""
@@ -228,9 +476,22 @@ def init_db():
                   arrival_time TEXT NOT NULL,
                   timestamp TEXT NOT NULL,
                   picked INTEGER DEFAULT 0,
-                  pick_order INTEGER DEFAULT NULL)''')
+                  pick_order INTEGER DEFAULT NULL,
+                  absent INTEGER DEFAULT 0)''')
     conn.commit()
     conn.close()
+
+def ensure_absent_column():
+    """Add absent column if it does not exist (backward compatible)."""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    try:
+        c.execute("ALTER TABLE signups ADD COLUMN absent INTEGER DEFAULT 0")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+    finally:
+        conn.close()
 
 def load_djs():
     """Load all DJs from database"""
@@ -272,6 +533,14 @@ def unmark_dj_picked(name):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     c.execute("UPDATE signups SET picked = 0, pick_order = NULL WHERE name = ?", (name,))
+    conn.commit()
+    conn.close()
+
+def set_dj_absent(dj_id, is_absent_flag):
+    """Set DJ absent status."""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("UPDATE signups SET absent = ? WHERE id = ?", (1 if is_absent_flag else 0, dj_id))
     conn.commit()
     conn.close()
 
@@ -332,6 +601,7 @@ def migrate_from_csv():
 
 # Initialize database
 init_db()
+ensure_absent_column()
 migrate_from_csv()
 
 # --- Clear form session state before any widgets are created ---
@@ -364,157 +634,72 @@ if 'confirm_delete' not in st.session_state:
     st.session_state.confirm_delete = None
 if 'confirm_reset' not in st.session_state:
     st.session_state.confirm_reset = False
+if 'reduce_motion' not in st.session_state:
+    st.session_state.reduce_motion = False
+
+if st.session_state.reduce_motion:
+    st.markdown("""
+    <style>
+        * {
+            animation: none !important;
+            transition: none !important;
+            scroll-behavior: auto !important;
+        }
+    </style>
+    """, unsafe_allow_html=True)
 
 # --- UI Tabs ---
-tab_signup, tab_entries, tab_history, tab_admin = st.tabs(["🎵 Sign-Up", "📊 Entries", "🎤 Play Order", "🔒 Admin"])
+tab_signup, tab_entries, tab_history, tab_admin = st.tabs(["Sign Up", "Entries", "Play Order", "Admin"])
 
 # --- Sign-Up & Lottery Tab ---
 with tab_signup:
-    st.title("🔥 EXTRA SPICY PLEASE")
+    st.title("EXTRA SPICY PLEASE")
     st.markdown("### Open Decks Lottery")
     
-    # Stats row
-    total_djs = len(dj_list)
-    played_count = len(st.session_state.played_djs)
-    remaining = total_djs - played_count
-    
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.markdown(f"""
-        <div class="stat-card">
-            <h3>{total_djs}</h3>
-            <p>Total Signed Up</p>
-        </div>
-        """, unsafe_allow_html=True)
-    with col2:
-        st.markdown(f"""
-        <div class="stat-card">
-            <h3>{played_count}</h3>
-            <p>Already Played</p>
-        </div>
-        """, unsafe_allow_html=True)
-    with col3:
-        st.markdown(f"""
-        <div class="stat-card">
-            <h3>{remaining}</h3>
-            <p>Still Waiting</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    # Currently Playing indicator
-    if st.session_state.current_dj:
-        st.markdown(f"""
-        <div class="now-playing">
-            🎧 NOW PLAYING: {st.session_state.current_dj}
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # Show winner announcement if just drawn
-    if st.session_state.show_winner:
-        st.markdown(f"""
-        <div class="winner-announcement">
-            <h2>🎉 {st.session_state.show_winner} 🎉</h2>
-            <p style="color: #ccc; margin-top: 0.5rem;">You're up next!</p>
-        </div>
-        """, unsafe_allow_html=True)
-        st.balloons()
-        st.session_state.show_winner = None
-    
-    # Lottery Draw Controls
-    st.subheader("🎲 Lottery Draw")
-    
-    col_draw1, col_draw2 = st.columns(2)
-    with col_draw1:
-        if st.button("🎰 Draw Next DJ", use_container_width=True, type="primary"):
-            remaining_djs = [dj for dj in dj_list if dj['name'] not in st.session_state.played_djs]
-            if not remaining_djs:
-                st.warning("All DJs have played or none signed up.")
-            else:
-                # Show spinning animation placeholder
-                with st.spinner("🎲 Spinning the wheel..."):
-                    time.sleep(1.5)  # Suspense!
-                
-                now = datetime.datetime.now()
-                weights = []
-                for dj in remaining_djs:
-                    arr_time = datetime.datetime.strptime(dj['arrival_time'], "%H:%M:%S").time()
-                    elapsed = (now - datetime.datetime.combine(datetime.date.today(), arr_time)).total_seconds() / 60
-                    weights.append(min(5, int(elapsed // 15) + 1))
-                
-                pick = random.choices(remaining_djs, weights=weights, k=1)[0]
-                st.session_state.played_djs.append(pick['name'])
-                st.session_state.current_dj = pick['name']
-                st.session_state.show_winner = pick['name']
-                
-                # Update database
-                mark_dj_picked(pick['name'], get_pick_count())
-                st.rerun()
-    
-    with col_draw2:
-        if st.button("🎯 Wildcard Pick", use_container_width=True):
-            remaining_djs = [dj for dj in dj_list if dj['name'] not in st.session_state.played_djs]
-            if not remaining_djs:
-                st.warning("No DJs left for wildcard.")
-            else:
-                with st.spinner("🎯 Random selection..."):
-                    time.sleep(1)
-                
-                pick = random.choice(remaining_djs)
-                st.session_state.wildcard_djs.append(pick['name'])
-                st.session_state.played_djs.append(pick['name'])
-                st.session_state.current_dj = pick['name']
-                st.session_state.show_winner = pick['name']
-                
-                # Update database
-                mark_dj_picked(pick['name'], get_pick_count())
-                st.rerun()
-    
-    st.markdown("---")
-    
     # DJ Sign-Up Form
-    st.subheader("🎧 DJ Sign-Up")
+    st.subheader("DJ Sign-Up")
     
     with st.form("signup_form"):
         real_name = st.text_input("Your Name *", key="form_real_name", placeholder="John Smith")
-        name = st.text_input("DJ Name *", key="form_name", placeholder="DJ Spicy")
-        email = st.text_input("Email * (for your recording)", key="form_email", placeholder="you@email.com")
+        real_name_error = st.empty()
+        name = st.text_input("DJ Name *", key="form_name", placeholder="DJ ABCXYZ")
+        name_error = st.empty()
+        email = st.text_input("Email *", key="form_email", placeholder="you@email.com")
+        email_error = st.empty()
         instagram = st.text_input("Instagram", key="form_instagram", placeholder="@yourhandle")
         
-        col1, col2 = st.columns(2)
-        with col1:
-            submitted = st.form_submit_button("🔥 Sign Up", use_container_width=True, type="primary")
-        with col2:
-            clear = st.form_submit_button("Clear Form", use_container_width=True)
+        submitted = st.form_submit_button("Sign Up", type="primary")
+        clear = st.form_submit_button("Clear Form")
         
         if submitted:
-            # Validation
-            errors = []
+            has_error = False
             if not real_name.strip():
-                errors.append("Name is required")
+                real_name_error.error("Name is required")
+                has_error = True
             if not name.strip():
-                errors.append("DJ Name is required")
+                name_error.error("DJ name is required")
+                has_error = True
+            elif is_duplicate_dj(name, dj_list):
+                name_error.error(f"DJ name '{name}' is already registered!")
+                has_error = True
             if not email.strip():
-                errors.append("Email is required")
+                email_error.error("Email is required")
+                has_error = True
             elif not is_valid_email(email):
-                errors.append("Please enter a valid email address")
-            if is_duplicate_dj(name, dj_list):
-                errors.append(f"DJ Name '{name}' is already registered!")
+                email_error.error("Enter a valid email address")
+                has_error = True
             
-            if errors:
-                for error in errors:
-                    st.error(f"❌ {error}")
-            else:
+            if not has_error:
                 # Normalize instagram
                 clean_instagram = normalize_instagram(instagram)
                 
                 if add_dj(real_name.strip(), name.strip(), email.strip(), clean_instagram):
-                    st.success(f"✅ {name} signed up successfully!")
+                    st.success(f"{name} signed up successfully.")
                     st.session_state.clear_form = True
+                    time.sleep(3)
                     st.rerun()
                 else:
-                    st.error("❌ Failed to sign up. DJ name may already exist.")
+                    st.error("Failed to sign up. DJ name may already exist.")
         
         if clear:
             st.session_state.clear_form = True
@@ -522,40 +707,14 @@ with tab_signup:
 
 # --- Entries Tab ---
 with tab_entries:
-    st.subheader("📊 All Sign-Up Entries")
+    st.subheader("All Sign-Up Entries")
     
     # Reload DJ list
     dj_list = load_djs()
     
     if dj_list:
         # Summary stats
-        st.markdown(f"**{len(dj_list)}** DJs signed up • **{len(st.session_state.played_djs)}** have played")
-        
-        # --- Summary Table ---
-        summary_df = pd.DataFrame(dj_list)
-        summary_df['status'] = summary_df['name'].apply(
-            lambda x: '✅ Played' if x in st.session_state.played_djs else '⏳ Waiting'
-        )
-        summary_df['wildcard'] = summary_df['name'].apply(
-            lambda x: '🎯 Yes' if x in st.session_state.wildcard_djs else ''
-        )
-        
-        # Select and rename columns
-        display_cols = ['real_name', 'name', 'instagram', 'arrival_time', 'status', 'wildcard']
-        display_df = summary_df[[col for col in display_cols if col in summary_df.columns]].copy()
-        display_df.columns = ['Name', 'DJ Name', 'Instagram', 'Arrival', 'Status', 'Wildcard']
-        
-        # Color coding
-        def highlight_row(row):
-            if '✅' in str(row.get('Status', '')):
-                return ['background-color: #1a4d1a'] * len(row)
-            return [''] * len(row)
-        
-        st.dataframe(
-            display_df.style.apply(highlight_row, axis=1),
-            use_container_width=True,
-            hide_index=True
-        )
+        st.markdown(f"**{len(dj_list)}** DJs signed up - **{len(st.session_state.played_djs)}** have played")
         
         # Download button
         export_df = pd.DataFrame(dj_list)
@@ -563,19 +722,45 @@ with tab_entries:
         export_df['wildcard'] = export_df['name'].apply(lambda x: 'Yes' if x in st.session_state.wildcard_djs else 'No')
         
         st.download_button(
-            label="📥 Download CSV",
+            label="Download CSV",
             data=export_df.to_csv(index=False),
             file_name=f"dj_signups_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.csv",
             mime="text/csv"
         )
         
+        with st.expander("Summary table (optional)", expanded=False):
+            summary_df = pd.DataFrame(dj_list)
+            summary_df['status'] = summary_df['name'].apply(
+                lambda x: 'Played' if x in st.session_state.played_djs else 'Waiting'
+            )
+            summary_df['wildcard'] = summary_df['name'].apply(
+                lambda x: 'Yes' if x in st.session_state.wildcard_djs else ''
+            )
+            
+            # Select and rename columns
+            display_cols = ['real_name', 'name', 'instagram', 'arrival_time', 'status', 'wildcard']
+            display_df = summary_df[[col for col in display_cols if col in summary_df.columns]].copy()
+            display_df.columns = ['Name', 'DJ Name', 'Instagram', 'Arrival', 'Status', 'Wildcard']
+            
+            # Color coding
+            def highlight_row(row):
+                if 'Played' in str(row.get('Status', '')):
+                    return ['background-color: #2b0000; color: #ffffff'] * len(row)
+                return [''] * len(row)
+            
+            st.dataframe(
+                display_df.style.apply(highlight_row, axis=1),
+                use_container_width=True,
+                hide_index=True
+            )
+        
         st.markdown("---")
         
         # --- Expanders for Details and Delete ---
-        st.markdown("### Individual Entries")
+        st.markdown("### Entries")
         for dj in dj_list:
-            status_icon = "✅" if dj['name'] in st.session_state.played_djs else "⏳"
-            with st.expander(f"{status_icon} {dj['name']} ({dj.get('real_name', 'N/A')})"):
+            status_label = "Played" if dj['name'] in st.session_state.played_djs else "Waiting"
+            with st.expander(f"{status_label}: {dj['name']} ({dj.get('real_name', 'N/A')})"):
                 col1, col2 = st.columns(2)
                 with col1:
                     st.write(f"**Name:** {dj.get('real_name', 'N/A')}")
@@ -587,11 +772,11 @@ with tab_entries:
                     st.write(f"**Signed up:** {dj['timestamp']}")
                 
                 if dj['name'] in st.session_state.wildcard_djs:
-                    st.info("🎯 This DJ was a wildcard pick!")
+                    st.info("This DJ was a wildcard pick.")
                 
                 # Delete with confirmation
                 if st.session_state.confirm_delete == dj['id']:
-                    st.warning(f"⚠️ Are you sure you want to delete {dj['name']}?")
+                    st.warning(f"Are you sure you want to delete {dj['name']}?")
                     col_yes, col_no = st.columns(2)
                     with col_yes:
                         if st.button("Yes, Delete", key=f"confirm_del_{dj['id']}", type="primary"):
@@ -607,15 +792,15 @@ with tab_entries:
                             st.session_state.confirm_delete = None
                             st.rerun()
                 else:
-                    if st.button(f"🗑️ Delete", key=f"delete_{dj['id']}"):
+                    if st.button("Delete", key=f"delete_{dj['id']}"):
                         st.session_state.confirm_delete = dj['id']
                         st.rerun()
     else:
-        st.info("No entries yet. Sign up on the first tab!")
+        st.info("No entries yet. Sign up on the first tab.")
 
 # --- Play Order Tab ---
 with tab_history:
-    st.subheader("🎤 Tonight's Play Order")
+    st.subheader("Tonight's Play Order")
     
     dj_list = load_djs()
     played_djs = [dj for dj in dj_list if dj.get('picked') and dj.get('pick_order')]
@@ -624,11 +809,11 @@ with tab_history:
     if played_djs:
         for i, dj in enumerate(played_djs, 1):
             is_current = dj['name'] == st.session_state.current_dj
-            wildcard = "🎯" if dj['name'] in st.session_state.wildcard_djs else ""
+            wildcard = "(Wildcard)" if dj['name'] in st.session_state.wildcard_djs else ""
             
             if is_current:
                 st.markdown(f"""
-                <div class="now-playing">
+                <div class="now-playing" role="status" aria-live="polite" aria-atomic="true">
                     #{i} {dj['name']} {wildcard} - NOW PLAYING
                 </div>
                 """, unsafe_allow_html=True)
@@ -637,7 +822,7 @@ with tab_history:
         
         # Undo last pick
         st.markdown("---")
-        if st.button("↩️ Undo Last Pick"):
+        if st.button("Undo Last Pick"):
             if played_djs:
                 last_dj = played_djs[-1]
                 unmark_dj_picked(last_dj['name'])
@@ -650,39 +835,220 @@ with tab_history:
                     st.session_state.current_dj = played_djs[-2]['name']
                 else:
                     st.session_state.current_dj = None
-                st.success(f"↩️ Undid pick for {last_dj['name']}")
+                st.success(f"Undid pick for {last_dj['name']}")
                 st.rerun()
     else:
         st.info("No DJs have played yet. Start the lottery!")
 
 # --- Admin Tab ---
 with tab_admin:
-    st.subheader("🔒 Admin Panel")
+    st.subheader("Admin Panel")
     pwd = st.text_input("Enter Admin Password", type="password")
     
     if pwd == ADMIN_PASSWORD:
-        st.success("✅ Authenticated")
+        st.success("Authenticated")
         
         dj_list = load_djs()
+
+        with st.expander("Display options"):
+            st.checkbox(
+                "Reduce motion effects",
+                key="reduce_motion",
+                help="Disable animations and celebration effects for a calmer experience."
+            )
+
+        # Stats row
+        total_djs = len(dj_list)
+        played_count = len(st.session_state.played_djs)
+        remaining = total_djs - played_count
         
-        # Manual DJ pick option
-        unpicked_djs = [dj['name'] for dj in dj_list if dj['name'] not in st.session_state.played_djs]
-        if unpicked_djs:
-            manual_pick = st.selectbox("Manually pick a DJ (mark as played)", unpicked_djs, key="manual_pick_select")
-            if st.button("✅ Mark as Picked", type="primary"):
-                st.session_state.played_djs.append(manual_pick)
-                st.session_state.current_dj = manual_pick
-                mark_dj_picked(manual_pick, get_pick_count())
-                st.success(f"✅ {manual_pick} marked as picked.")
-                st.rerun()
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown(f"""
+            <div class="stat-card">
+                <h3>{total_djs}</h3>
+                <p>Total Signed Up</p>
+            </div>
+            """, unsafe_allow_html=True)
+        with col2:
+            st.markdown(f"""
+            <div class="stat-card">
+                <h3>{played_count}</h3>
+                <p>Already Played</p>
+            </div>
+            """, unsafe_allow_html=True)
+        with col3:
+            st.markdown(f"""
+            <div class="stat-card">
+                <h3>{remaining}</h3>
+                <p>Still Waiting</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # Currently Playing indicator
+        if st.session_state.current_dj:
+            st.markdown(f"""
+            <div class="now-playing" role="status" aria-live="polite" aria-atomic="true">
+                NOW PLAYING: {st.session_state.current_dj}
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # Show winner announcement if just drawn
+        if st.session_state.show_winner:
+            st.markdown(f"""
+            <div class="winner-announcement" role="status" aria-live="polite" aria-atomic="true">
+                <h2>Next up: {st.session_state.show_winner}</h2>
+                <p style="color: var(--text-muted); margin-top: 0.5rem;">You're up next!</p>
+            </div>
+            """, unsafe_allow_html=True)
+            st.session_state.show_winner = None
+        
+        st.markdown("---")
+        st.subheader("Lottery Draw")
+        
+        col_draw1, col_draw2 = st.columns(2)
+        with col_draw1:
+            if st.button("Draw Next DJ", use_container_width=True, type="primary"):
+                eligible_djs = [dj for dj in dj_list if is_eligible_for_draw(dj, st.session_state.played_djs)]
+                if not eligible_djs:
+                    st.warning("No eligible DJs left to draw.")
+                else:
+                    with st.spinner("Drawing..."):
+                        time.sleep(1.5)
+                    
+                    now = datetime.datetime.now()
+                    weights = []
+                    for dj in eligible_djs:
+                        arr_time = datetime.datetime.strptime(dj['arrival_time'], "%H:%M:%S").time()
+                        elapsed = (now - datetime.datetime.combine(datetime.date.today(), arr_time)).total_seconds() / 60
+                        weights.append(min(5, int(elapsed // 15) + 1))
+                    
+                    pick = random.choices(eligible_djs, weights=weights, k=1)[0]
+                    st.session_state.played_djs.append(pick['name'])
+                    st.session_state.current_dj = pick['name']
+                    st.session_state.show_winner = pick['name']
+                    
+                    # Update database
+                    mark_dj_picked(pick['name'], get_pick_count())
+                    st.rerun()
+        
+        with col_draw2:
+            if st.button("Wildcard Pick", use_container_width=True):
+                eligible_djs = [dj for dj in dj_list if is_eligible_for_draw(dj, st.session_state.played_djs)]
+                if not eligible_djs:
+                    st.warning("No eligible DJs left for wildcard.")
+                else:
+                    with st.spinner("Selecting..."):
+                        time.sleep(1)
+                    
+                    pick = random.choice(eligible_djs)
+                    st.session_state.wildcard_djs.append(pick['name'])
+                    st.session_state.played_djs.append(pick['name'])
+                    st.session_state.current_dj = pick['name']
+                    st.session_state.show_winner = pick['name']
+                    
+                    # Update database
+                    mark_dj_picked(pick['name'], get_pick_count())
+                    st.rerun()
+        
+        st.markdown("---")
+        
+        st.subheader("DJ Entries")
+        admin_search = st.text_input(
+            "Search DJs",
+            placeholder="Search by DJ name, real name, email, Instagram",
+            key="admin_search"
+        )
+        filtered_djs = [dj for dj in dj_list if matches_admin_search(dj, admin_search)]
+
+        if not filtered_djs:
+            st.info("No DJs match your search.")
         else:
-            st.info("All DJs have been picked!")
+            header_cols = st.columns([1.4, 2.2, 2.2, 3.0, 2.0, 1.4, 2.4, 2.4], gap="small")
+            with header_cols[0]:
+                render_admin_header("Pick Order")
+            with header_cols[1]:
+                render_admin_header("DJ Name")
+            with header_cols[2]:
+                render_admin_header("Real Name")
+            with header_cols[3]:
+                render_admin_header("Email")
+            with header_cols[4]:
+                render_admin_header("Instagram")
+            with header_cols[5]:
+                render_admin_header("Status")
+            with header_cols[6]:
+                render_admin_header("Pick")
+            with header_cols[7]:
+                render_admin_header("Attendance")
+
+            for dj in filtered_djs:
+                picked = is_picked(dj, st.session_state.played_djs)
+                absent = is_absent(dj)
+                eligible = is_eligible_for_draw(dj, st.session_state.played_djs)
+                muted = not eligible
+
+                pick_order = dj.get('pick_order') if picked else "-"
+                dj_name = dj.get('name') or "-"
+                real_name = dj.get('real_name') or "-"
+                email_value = dj.get('email') or "-"
+                instagram = dj.get('instagram', '')
+                instagram_display = f"@{instagram}" if instagram else "-"
+
+                if picked and absent:
+                    status_label = "Picked / Absent"
+                elif picked:
+                    status_label = "Picked"
+                elif absent:
+                    status_label = "Absent"
+                else:
+                    status_label = "Eligible"
+
+                attendance_label = "Absent" if absent else "Present"
+                copy_payload = (
+                    f"Pick Order: {pick_order} | DJ Name: {dj_name} | "
+                    f"Real Name: {real_name} | Email: {email_value} | "
+                    f"Instagram: {instagram_display} | Status: {status_label} | "
+                    f"Attendance: {attendance_label}"
+                )
+
+                row_cols = st.columns([1.4, 2.2, 2.2, 3.0, 2.0, 1.4, 2.4, 2.4], gap="small")
+                with row_cols[0]:
+                    render_admin_cell(pick_order, muted=muted)
+                with row_cols[1]:
+                    render_admin_cell(dj_name, muted=muted)
+                with row_cols[2]:
+                    render_admin_cell(real_name, muted=muted)
+                with row_cols[3]:
+                    render_admin_cell(email_value, muted=muted)
+                with row_cols[4]:
+                    render_admin_cell(instagram_display, muted=muted)
+                with row_cols[5]:
+                    render_admin_cell(status_label, muted=muted)
+                with row_cols[6]:
+                    if st.button("Pick", key=f"pick_{dj['id']}", disabled=not eligible, use_container_width=True):
+                        if dj['name'] not in st.session_state.played_djs:
+                            st.session_state.played_djs.append(dj['name'])
+                        st.session_state.current_dj = dj['name']
+                        mark_dj_picked(dj['name'], get_pick_count())
+                        st.success(f"{dj['name']} marked as picked.")
+                        st.rerun()
+                with row_cols[7]:
+                    absent_label = "Mark present" if absent else "Mark absent"
+                    if st.button(absent_label, key=f"absent_{dj['id']}", use_container_width=True):
+                        set_dj_absent(dj['id'], not absent)
+                        st.rerun()
+                    if st.button("Copy", key=f"copy_{dj['id']}", use_container_width=True):
+                        if copy_to_clipboard(copy_payload):
+                            show_toast("Copied row to clipboard.")
+                        else:
+                            st.warning("Copy failed. Please copy manually.")
         
         st.markdown("---")
         
         # Clear current DJ indicator
         if st.session_state.current_dj:
-            if st.button("🔄 Clear 'Now Playing' indicator"):
+            if st.button("Clear Now Playing indicator"):
                 st.session_state.current_dj = None
                 st.rerun()
         
@@ -690,7 +1056,7 @@ with tab_admin:
         
         # Reset with confirmation
         if st.session_state.confirm_reset:
-            st.error("⚠️ This will delete ALL signups and reset everything!")
+            st.error("This will delete ALL signups and reset everything!")
             col_yes, col_no = st.columns(2)
             with col_yes:
                 if st.button("Yes, Reset Everything", type="primary"):
@@ -699,29 +1065,29 @@ with tab_admin:
                     st.session_state.wildcard_djs = []
                     st.session_state.current_dj = None
                     st.session_state.confirm_reset = False
-                    st.success("✅ All data has been reset.")
+                    st.success("All data has been reset.")
                     st.rerun()
             with col_no:
                 if st.button("Cancel"):
                     st.session_state.confirm_reset = False
                     st.rerun()
         else:
-            if st.button("🔄 Reset All Data"):
+            if st.button("Reset All Data"):
                 st.session_state.confirm_reset = True
                 st.rerun()
         
         st.markdown("---")
-        st.caption("💡 Set ADMIN_PASSWORD environment variable to change the password.")
+        st.caption("Set ADMIN_PASSWORD environment variable to change the password.")
     elif pwd:
-        st.error("❌ Incorrect password")
+        st.error("Incorrect password")
     else:
         st.info("Enter the password to access admin controls.")
 
 # --- Footer ---
 st.markdown("---")
 st.markdown("""
-<div style="text-align: center; color: #666; font-size: 0.8rem;">
-    🔥 EXTRA SPICY PLEASE • Open Decks Lottery System<br>
+<div style="text-align: center; color: var(--text-muted); font-size: 0.8rem;">
+    EXTRA SPICY PLEASE - Open Decks Lottery System<br>
     <span style="font-size: 0.7rem;">Tip: Add to home screen on mobile for app-like experience!</span>
 </div>
 """, unsafe_allow_html=True)
