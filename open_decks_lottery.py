@@ -4,7 +4,6 @@ import datetime
 import pandas as pd
 import os
 import re
-import html
 import subprocess
 import sys
 import sqlite3
@@ -39,6 +38,20 @@ st.markdown("""
     [data-testid="stHeader"] {
         background-color: var(--black);
         color: var(--text);
+    }
+
+    /* Hide Streamlit toolbar/footer branding */
+    header[data-testid="stHeader"] {
+        display: none;
+    }
+    [data-testid="stToolbar"] {
+        display: none;
+    }
+    [data-testid="stDecoration"] {
+        display: none;
+    }
+    footer {
+        display: none;
     }
 
     a {
@@ -335,27 +348,13 @@ st.markdown("""
     }
 
     /* Hide "Press Enter to submit" helper text in forms */
-    div[data-testid="stForm"] .stCaption {
+    div[data-testid="stForm"] .stCaption,
+    div[data-testid="stForm"] small,
+    div[data-testid="stForm"] [data-testid="stCaptionContainer"],
+    div[data-testid="stFormSubmitButton"] + div,
+    .stForm small,
+    [data-testid="stForm"] div:has(> small) {
         display: none !important;
-    }
-
-    /* Admin table text wrapping */
-    .admin-header,
-    .admin-cell {
-        display: block;
-        white-space: normal;
-        word-break: break-word;
-        overflow-wrap: break-word;
-        line-height: 1.2;
-        font-size: 0.95rem;
-    }
-
-    .admin-header {
-        font-weight: 700;
-    }
-
-    .admin-cell.muted {
-        color: var(--text-muted);
     }
 
     /* Dataframe colors */
@@ -374,6 +373,35 @@ st.markdown("""
     }
     div[data-testid="stDataFrame"] tr:nth-child(even) td {
         background-color: var(--black-3);
+    }
+    
+    /* Entry card delete button styling */
+    .entry-delete-btn {
+        min-width: 44px !important;
+        min-height: 44px !important;
+        padding: 0.5rem !important;
+        font-size: 1.2rem !important;
+    }
+    
+    /* Align delete button with expander */
+    div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:last-child {
+        display: flex;
+        align-items: flex-start;
+        padding-top: 0.25rem;
+    }
+    
+    /* On mobile, keep columns side by side for entry cards */
+    @media (max-width: 768px) {
+        .entries-row div[data-testid="stHorizontalBlock"] {
+            flex-direction: row !important;
+        }
+        .entries-row div[data-testid="stColumn"]:first-child {
+            flex: 5 !important;
+        }
+        .entries-row div[data-testid="stColumn"]:last-child {
+            flex: 1 !important;
+            max-width: 60px !important;
+        }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -424,20 +452,6 @@ def matches_admin_search(dj, query):
     ]
     return any(query in str(field).lower() for field in fields)
 
-def render_admin_cell(value, muted=False, fallback="-"):
-    """Render a table cell with optional muted styling."""
-    text = str(value).strip() if value is not None else ""
-    if not text:
-        text = fallback
-    safe_text = html.escape(text)
-    cell_class = "admin-cell muted" if muted else "admin-cell"
-    st.markdown(f'<div class="{cell_class}">{safe_text}</div>', unsafe_allow_html=True)
-
-def render_admin_header(label):
-    """Render a table header cell."""
-    safe_label = html.escape(label)
-    st.markdown(f'<div class="admin-header">{safe_label}</div>', unsafe_allow_html=True)
-
 def copy_to_clipboard(text):
     """Copy text to the system clipboard."""
     if not text:
@@ -477,7 +491,8 @@ def init_db():
                   timestamp TEXT NOT NULL,
                   picked INTEGER DEFAULT 0,
                   pick_order INTEGER DEFAULT NULL,
-                  absent INTEGER DEFAULT 0)''')
+                  absent INTEGER DEFAULT 0,
+                  play_time TEXT DEFAULT NULL)''')
     conn.commit()
     conn.close()
 
@@ -487,6 +502,18 @@ def ensure_absent_column():
     c = conn.cursor()
     try:
         c.execute("ALTER TABLE signups ADD COLUMN absent INTEGER DEFAULT 0")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+    finally:
+        conn.close()
+
+def ensure_play_time_column():
+    """Add play_time column if it does not exist (backward compatible)."""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    try:
+        c.execute("ALTER TABLE signups ADD COLUMN play_time TEXT DEFAULT NULL")
         conn.commit()
     except sqlite3.OperationalError:
         pass
@@ -520,11 +547,11 @@ def add_dj(real_name, name, email, instagram):
     conn.close()
     return success
 
-def mark_dj_picked(name, pick_order):
-    """Mark a DJ as picked"""
+def mark_dj_picked(name, pick_order, play_time=None):
+    """Mark a DJ as picked with optional play time"""
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("UPDATE signups SET picked = 1, pick_order = ? WHERE name = ?", (pick_order, name))
+    c.execute("UPDATE signups SET picked = 1, pick_order = ?, play_time = ? WHERE name = ?", (pick_order, play_time, name))
     conn.commit()
     conn.close()
 
@@ -602,6 +629,7 @@ def migrate_from_csv():
 # Initialize database
 init_db()
 ensure_absent_column()
+ensure_play_time_column()
 migrate_from_csv()
 
 # --- Clear form session state before any widgets are created ---
@@ -630,6 +658,10 @@ if 'current_dj' not in st.session_state:
     st.session_state.current_dj = None
 if 'show_winner' not in st.session_state:
     st.session_state.show_winner = None
+if 'pending_pick' not in st.session_state:
+    st.session_state.pending_pick = None  # Stores DJ awaiting time confirmation
+if 'pending_pick_is_wildcard' not in st.session_state:
+    st.session_state.pending_pick_is_wildcard = False
 if 'confirm_delete' not in st.session_state:
     st.session_state.confirm_delete = None
 if 'confirm_reset' not in st.session_state:
@@ -666,7 +698,8 @@ with tab_signup:
         name_error = st.empty()
         email = st.text_input("Email *", key="form_email", placeholder="you@email.com")
         email_error = st.empty()
-        instagram = st.text_input("Instagram", key="form_instagram", placeholder="@yourhandle")
+        instagram = st.text_input("Instagram *", key="form_instagram", placeholder="@yourhandle")
+        instagram_error = st.empty()
         
         submitted = st.form_submit_button("Sign Up", type="primary")
         clear = st.form_submit_button("Clear Form")
@@ -687,6 +720,9 @@ with tab_signup:
                 has_error = True
             elif not is_valid_email(email):
                 email_error.error("Enter a valid email address")
+                has_error = True
+            if not instagram.strip():
+                instagram_error.error("Instagram is required")
                 has_error = True
             
             if not has_error:
@@ -756,45 +792,59 @@ with tab_entries:
         
         st.markdown("---")
         
-        # --- Expanders for Details and Delete ---
+        # --- Entry Cards with Delete ---
         st.markdown("### Entries")
+        st.markdown('<div class="entries-row">', unsafe_allow_html=True)
+        
         for dj in dj_list:
             status_label = "Played" if dj['name'] in st.session_state.played_djs else "Waiting"
-            with st.expander(f"{status_label}: {dj['name']} ({dj.get('real_name', 'N/A')})"):
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.write(f"**Name:** {dj.get('real_name', 'N/A')}")
-                    st.write(f"**DJ Name:** {dj['name']}")
-                    st.write(f"**Instagram:** @{dj.get('instagram', 'N/A')}")
-                with col2:
-                    st.write(f"**Email:** {dj['email']}")
-                    st.write(f"**Arrival:** {dj['arrival_time']}")
-                    st.write(f"**Signed up:** {dj['timestamp']}")
-                
-                if dj['name'] in st.session_state.wildcard_djs:
-                    st.info("This DJ was a wildcard pick.")
-                
-                # Delete with confirmation
-                if st.session_state.confirm_delete == dj['id']:
-                    st.warning(f"Are you sure you want to delete {dj['name']}?")
-                    col_yes, col_no = st.columns(2)
-                    with col_yes:
-                        if st.button("Yes, Delete", key=f"confirm_del_{dj['id']}", type="primary"):
-                            if dj['name'] in st.session_state.played_djs:
-                                st.session_state.played_djs.remove(dj['name'])
-                            if dj['name'] in st.session_state.wildcard_djs:
-                                st.session_state.wildcard_djs.remove(dj['name'])
-                            delete_dj(dj['id'])
-                            st.session_state.confirm_delete = None
-                            st.rerun()
-                    with col_no:
-                        if st.button("Cancel", key=f"cancel_del_{dj['id']}"):
-                            st.session_state.confirm_delete = None
-                            st.rerun()
-                else:
-                    if st.button("Delete", key=f"delete_{dj['id']}"):
+            instagram_display = f"@{dj.get('instagram')}" if dj.get('instagram') else ""
+            wildcard_badge = " (Wildcard)" if dj['name'] in st.session_state.wildcard_djs else ""
+            
+            # Delete confirmation state
+            if st.session_state.confirm_delete == dj['id']:
+                st.markdown(f"""
+                <div class="confirm-box">
+                    <p style="margin: 0 0 1rem 0;">Delete <strong>{dj['name']}</strong>?</p>
+                </div>
+                """, unsafe_allow_html=True)
+                col_yes, col_no = st.columns(2)
+                with col_yes:
+                    if st.button("Yes, Delete", key=f"confirm_del_{dj['id']}", type="primary"):
+                        if dj['name'] in st.session_state.played_djs:
+                            st.session_state.played_djs.remove(dj['name'])
+                        if dj['name'] in st.session_state.wildcard_djs:
+                            st.session_state.wildcard_djs.remove(dj['name'])
+                        delete_dj(dj['id'])
+                        st.session_state.confirm_delete = None
+                        st.rerun()
+                with col_no:
+                    if st.button("Cancel", key=f"cancel_del_{dj['id']}"):
+                        st.session_state.confirm_delete = None
+                        st.rerun()
+            else:
+                # Entry card with inline delete
+                col_info, col_delete = st.columns([5, 1])
+                with col_info:
+                    with st.expander(f"{status_label}: {dj['name']} ({dj.get('real_name', 'N/A')}){wildcard_badge}"):
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.write(f"**Name:** {dj.get('real_name', 'N/A')}")
+                            st.write(f"**DJ Name:** {dj['name']}")
+                            st.write(f"**Instagram:** {instagram_display or 'N/A'}")
+                        with col2:
+                            st.write(f"**Email:** {dj['email']}")
+                            st.write(f"**Arrival:** {dj['arrival_time']}")
+                            st.write(f"**Signed up:** {dj['timestamp']}")
+                        
+                        if dj['name'] in st.session_state.wildcard_djs:
+                            st.info("This DJ was a wildcard pick.")
+                with col_delete:
+                    if st.button("🗑️", key=f"delete_{dj['id']}", help="Delete this entry"):
                         st.session_state.confirm_delete = dj['id']
                         st.rerun()
+        
+        st.markdown('</div>', unsafe_allow_html=True)
     else:
         st.info("No entries yet. Sign up on the first tab.")
 
@@ -807,18 +857,22 @@ with tab_history:
     played_djs.sort(key=lambda x: x.get('pick_order', 999))
     
     if played_djs:
+        # Selected Players table
+        schedule_data = []
         for i, dj in enumerate(played_djs, 1):
-            is_current = dj['name'] == st.session_state.current_dj
-            wildcard = "(Wildcard)" if dj['name'] in st.session_state.wildcard_djs else ""
-            
-            if is_current:
-                st.markdown(f"""
-                <div class="now-playing" role="status" aria-live="polite" aria-atomic="true">
-                    #{i} {dj['name']} {wildcard} - NOW PLAYING
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.markdown(f"**#{i}** {dj['name']} {wildcard}")
+            wildcard = "Yes" if dj['name'] in st.session_state.wildcard_djs else ""
+            play_time = dj.get('play_time', '-')
+            status = "NOW PLAYING" if dj['name'] == st.session_state.current_dj else "Played" if i < len(played_djs) else "Up Next"
+            schedule_data.append({
+                "#": i,
+                "DJ Name": dj['name'],
+                "Time": play_time if play_time else "-",
+                "Wildcard": wildcard,
+                "Status": status
+            })
+        
+        schedule_df = pd.DataFrame(schedule_data)
+        st.dataframe(schedule_df, use_container_width=True, hide_index=True)
         
         # Undo last pick
         st.markdown("---")
@@ -906,50 +960,85 @@ with tab_admin:
         st.markdown("---")
         st.subheader("Lottery Draw")
         
-        col_draw1, col_draw2 = st.columns(2)
-        with col_draw1:
-            if st.button("Draw Next DJ", use_container_width=True, type="primary"):
-                eligible_djs = [dj for dj in dj_list if is_eligible_for_draw(dj, st.session_state.played_djs)]
-                if not eligible_djs:
-                    st.warning("No eligible DJs left to draw.")
-                else:
-                    with st.spinner("Drawing..."):
-                        time.sleep(1.5)
+        # Show pending pick confirmation with time picker
+        if st.session_state.pending_pick:
+            pending_dj = st.session_state.pending_pick
+            wildcard_text = " (Wildcard)" if st.session_state.pending_pick_is_wildcard else ""
+            
+            st.markdown(f"""
+            <div class="winner-announcement" role="status" aria-live="polite" aria-atomic="true">
+                <h2>Next up: {pending_dj['name']}{wildcard_text}</h2>
+                <p style="color: var(--text-muted); margin-top: 0.5rem;">Set their play time to confirm</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            col_time, col_confirm = st.columns([2, 1])
+            with col_time:
+                play_time = st.time_input(
+                    "Play Time",
+                    value=datetime.datetime.now().time(),
+                    key="pending_play_time"
+                )
+            with col_confirm:
+                st.write("")  # Spacer for alignment
+                if st.button("Confirm", type="primary", use_container_width=True, key="confirm_pick"):
+                    play_time_str = play_time.strftime("%I:%M %p")
                     
-                    now = datetime.datetime.now()
-                    weights = []
-                    for dj in eligible_djs:
-                        arr_time = datetime.datetime.strptime(dj['arrival_time'], "%H:%M:%S").time()
-                        elapsed = (now - datetime.datetime.combine(datetime.date.today(), arr_time)).total_seconds() / 60
-                        weights.append(min(5, int(elapsed // 15) + 1))
+                    # Mark as picked with time
+                    if st.session_state.pending_pick_is_wildcard:
+                        st.session_state.wildcard_djs.append(pending_dj['name'])
+                    st.session_state.played_djs.append(pending_dj['name'])
+                    st.session_state.current_dj = pending_dj['name']
+                    st.session_state.show_winner = pending_dj['name']
                     
-                    pick = random.choices(eligible_djs, weights=weights, k=1)[0]
-                    st.session_state.played_djs.append(pick['name'])
-                    st.session_state.current_dj = pick['name']
-                    st.session_state.show_winner = pick['name']
+                    mark_dj_picked(pending_dj['name'], get_pick_count(), play_time_str)
                     
-                    # Update database
-                    mark_dj_picked(pick['name'], get_pick_count())
+                    # Clear pending state
+                    st.session_state.pending_pick = None
+                    st.session_state.pending_pick_is_wildcard = False
                     st.rerun()
-        
-        with col_draw2:
-            if st.button("Wildcard Pick", use_container_width=True):
-                eligible_djs = [dj for dj in dj_list if is_eligible_for_draw(dj, st.session_state.played_djs)]
-                if not eligible_djs:
-                    st.warning("No eligible DJs left for wildcard.")
-                else:
-                    with st.spinner("Selecting..."):
-                        time.sleep(1)
-                    
-                    pick = random.choice(eligible_djs)
-                    st.session_state.wildcard_djs.append(pick['name'])
-                    st.session_state.played_djs.append(pick['name'])
-                    st.session_state.current_dj = pick['name']
-                    st.session_state.show_winner = pick['name']
-                    
-                    # Update database
-                    mark_dj_picked(pick['name'], get_pick_count())
-                    st.rerun()
+            
+            if st.button("Cancel", use_container_width=True, key="cancel_pick"):
+                st.session_state.pending_pick = None
+                st.session_state.pending_pick_is_wildcard = False
+                st.rerun()
+        else:
+            col_draw1, col_draw2 = st.columns(2)
+            with col_draw1:
+                if st.button("Draw Next DJ", use_container_width=True, type="primary"):
+                    eligible_djs = [dj for dj in dj_list if is_eligible_for_draw(dj, st.session_state.played_djs)]
+                    if not eligible_djs:
+                        st.warning("No eligible DJs left to draw.")
+                    else:
+                        with st.spinner("Drawing..."):
+                            time.sleep(1.5)
+                        
+                        now = datetime.datetime.now()
+                        weights = []
+                        for dj in eligible_djs:
+                            arr_time = datetime.datetime.strptime(dj['arrival_time'], "%H:%M:%S").time()
+                            elapsed = (now - datetime.datetime.combine(datetime.date.today(), arr_time)).total_seconds() / 60
+                            # Ensure weight is always between 1 and 5
+                            weights.append(max(1, min(5, int(elapsed // 15) + 1)))
+                        
+                        pick = random.choices(eligible_djs, weights=weights, k=1)[0]
+                        st.session_state.pending_pick = pick
+                        st.session_state.pending_pick_is_wildcard = False
+                        st.rerun()
+            
+            with col_draw2:
+                if st.button("Wildcard Pick", use_container_width=True):
+                    eligible_djs = [dj for dj in dj_list if is_eligible_for_draw(dj, st.session_state.played_djs)]
+                    if not eligible_djs:
+                        st.warning("No eligible DJs left for wildcard.")
+                    else:
+                        with st.spinner("Selecting..."):
+                            time.sleep(1)
+                        
+                        pick = random.choice(eligible_djs)
+                        st.session_state.pending_pick = pick
+                        st.session_state.pending_pick_is_wildcard = True
+                        st.rerun()
         
         st.markdown("---")
         
@@ -964,29 +1053,14 @@ with tab_admin:
         if not filtered_djs:
             st.info("No DJs match your search.")
         else:
-            header_cols = st.columns([1.4, 2.2, 2.2, 3.0, 2.0, 1.4, 2.4, 2.4], gap="small")
-            with header_cols[0]:
-                render_admin_header("Pick Order")
-            with header_cols[1]:
-                render_admin_header("DJ Name")
-            with header_cols[2]:
-                render_admin_header("Real Name")
-            with header_cols[3]:
-                render_admin_header("Email")
-            with header_cols[4]:
-                render_admin_header("Instagram")
-            with header_cols[5]:
-                render_admin_header("Status")
-            with header_cols[6]:
-                render_admin_header("Pick")
-            with header_cols[7]:
-                render_admin_header("Attendance")
+            display_rows = []
+            dj_meta = {}
+            label_lookup = {}
 
             for dj in filtered_djs:
                 picked = is_picked(dj, st.session_state.played_djs)
                 absent = is_absent(dj)
                 eligible = is_eligible_for_draw(dj, st.session_state.played_djs)
-                muted = not eligible
 
                 pick_order = dj.get('pick_order') if picked else "-"
                 dj_name = dj.get('name') or "-"
@@ -994,6 +1068,8 @@ with tab_admin:
                 email_value = dj.get('email') or "-"
                 instagram = dj.get('instagram', '')
                 instagram_display = f"@{instagram}" if instagram else "-"
+                arrival_time = dj.get('arrival_time') or "-"
+                signup_time = dj.get('timestamp') or "-"
 
                 if picked and absent:
                     status_label = "Picked / Absent"
@@ -1005,40 +1081,79 @@ with tab_admin:
                     status_label = "Eligible"
 
                 attendance_label = "Absent" if absent else "Present"
+
+                display_rows.append({
+                    "Pick Order": pick_order,
+                    "DJ Name": dj_name,
+                    "Real Name": real_name,
+                    "Email": email_value,
+                    "Instagram": instagram_display,
+                    "Status": status_label,
+                    "Attendance": attendance_label,
+                    "Arrival": arrival_time,
+                    "Signed up": signup_time,
+                })
+
+                label_lookup[dj['id']] = f"{dj_name} ({real_name}) - {status_label}"
+                dj_meta[dj['id']] = {
+                    "eligible": eligible,
+                    "absent": absent,
+                    "pick_order": pick_order,
+                    "dj_name": dj_name,
+                    "real_name": real_name,
+                    "email_value": email_value,
+                    "instagram_display": instagram_display,
+                    "status_label": status_label,
+                    "attendance_label": attendance_label,
+                }
+
+            display_df = pd.DataFrame(display_rows)
+            if not display_df.empty:
+                st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+            st.markdown("### Actions")
+            selected_id = st.selectbox(
+                "Select DJ",
+                options=[dj['id'] for dj in filtered_djs],
+                format_func=lambda dj_id: label_lookup.get(dj_id, str(dj_id)),
+                key="admin_action_select"
+            )
+
+            selected_dj = next((dj for dj in filtered_djs if dj['id'] == selected_id), None)
+            selected_meta = dj_meta.get(selected_id, {})
+
+            if selected_dj:
                 copy_payload = (
-                    f"Pick Order: {pick_order} | DJ Name: {dj_name} | "
-                    f"Real Name: {real_name} | Email: {email_value} | "
-                    f"Instagram: {instagram_display} | Status: {status_label} | "
-                    f"Attendance: {attendance_label}"
+                    f"Pick Order: {selected_meta.get('pick_order', '-')} | "
+                    f"DJ Name: {selected_meta.get('dj_name', '-')} | "
+                    f"Real Name: {selected_meta.get('real_name', '-')} | "
+                    f"Email: {selected_meta.get('email_value', '-')} | "
+                    f"Instagram: {selected_meta.get('instagram_display', '-')} | "
+                    f"Status: {selected_meta.get('status_label', '-')} | "
+                    f"Attendance: {selected_meta.get('attendance_label', '-')}"
                 )
 
-                row_cols = st.columns([1.4, 2.2, 2.2, 3.0, 2.0, 1.4, 2.4, 2.4], gap="small")
-                with row_cols[0]:
-                    render_admin_cell(pick_order, muted=muted)
-                with row_cols[1]:
-                    render_admin_cell(dj_name, muted=muted)
-                with row_cols[2]:
-                    render_admin_cell(real_name, muted=muted)
-                with row_cols[3]:
-                    render_admin_cell(email_value, muted=muted)
-                with row_cols[4]:
-                    render_admin_cell(instagram_display, muted=muted)
-                with row_cols[5]:
-                    render_admin_cell(status_label, muted=muted)
-                with row_cols[6]:
-                    if st.button("Pick", key=f"pick_{dj['id']}", disabled=not eligible, use_container_width=True):
-                        if dj['name'] not in st.session_state.played_djs:
-                            st.session_state.played_djs.append(dj['name'])
-                        st.session_state.current_dj = dj['name']
-                        mark_dj_picked(dj['name'], get_pick_count())
-                        st.success(f"{dj['name']} marked as picked.")
+                action_cols = st.columns(3)
+                with action_cols[0]:
+                    if st.button(
+                        "Pick",
+                        key=f"pick_{selected_dj['id']}",
+                        disabled=not selected_meta.get("eligible", False),
+                        use_container_width=True
+                    ):
+                        if selected_dj['name'] not in st.session_state.played_djs:
+                            st.session_state.played_djs.append(selected_dj['name'])
+                        st.session_state.current_dj = selected_dj['name']
+                        mark_dj_picked(selected_dj['name'], get_pick_count())
+                        st.success(f"{selected_dj['name']} marked as picked.")
                         st.rerun()
-                with row_cols[7]:
-                    absent_label = "Mark present" if absent else "Mark absent"
-                    if st.button(absent_label, key=f"absent_{dj['id']}", use_container_width=True):
-                        set_dj_absent(dj['id'], not absent)
+                with action_cols[1]:
+                    absent_label = "Mark present" if selected_meta.get("absent") else "Mark absent"
+                    if st.button(absent_label, key=f"absent_{selected_dj['id']}", use_container_width=True):
+                        set_dj_absent(selected_dj['id'], not selected_meta.get("absent"))
                         st.rerun()
-                    if st.button("Copy", key=f"copy_{dj['id']}", use_container_width=True):
+                with action_cols[2]:
+                    if st.button("Copy", key=f"copy_{selected_dj['id']}", use_container_width=True):
                         if copy_to_clipboard(copy_payload):
                             show_toast("Copied row to clipboard.")
                         else:
